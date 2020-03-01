@@ -4,6 +4,8 @@
 #
 # Title:        user_db.pl
 # Version:      v1.0 (initial version)
+#               v1.1 -- makes the key in the same manner as the loginid.  This allows the key creation
+#                       to be folded into the USER_NAME subroutine.
 # Author:       Andy Howey
 # Date:         06/17/2005 initial version
 # Description:  This script creates a database of users with encrypted
@@ -39,7 +41,7 @@ my $privilege_level;
 my $word;
 my $password;
 my $loginid;
-my $key;
+my $db_key;
 my $user_info;
 
 ############
@@ -60,41 +62,10 @@ my %name_secret = ();
 ## end of global variable declarations
 ##################################################################
 
-sub KEY_INFO {
-##
-## create/determine search key based on the 1st two letters of the user's first and last names
-##
-        my @key_source = ();
-        my $key_source;
-	my $flname;
-        my $pre_key0;
-        my $pre_key1;
-        print "\n\n\tPlease enter the user's first name:  ";
-        chomp($fname = <STDIN>);
-        print "\n\n\tPlease enter the user's last name:  ";
-        chomp($lname = <STDIN>);
-	$flname = join(' ',$fname,$lname);
-        @key_source = split(' ',$flname);                       ## array comprised of the user's first and last names
-        chomp($pre_key0 = substr($key_source[0], 0, 2));        ## get 1st two letters of the user's first name
-        if ($key_source[1]) {                                   ## tests for existence of the user's last name.  If it exists,
-                                                                ## get the 1st two letters, otherwise null string and warning.
-                chomp($pre_key1 = substr($key_source[1], 0, 2));
-        } else {
-                print "\n\tThere is no 2nd element of the search key!!!\n";
-                #chomp($pre_key1 = "");
-        }
-        if ($pre_key1) {                        ## tests for existence of 2nd element of search key.  If it
-                                                ## exists, concatenates to 1st element, otherwise, search
-                                                ## key consists only of 1st element
-                chomp($key = $pre_key0 . $pre_key1);
-        } else {
-                chomp($key = $pre_key0);
-        }
-        return $flname;
-}
-
 sub USER_INFO {
-	KEY_INFO;
+	##
+        ## Gets user name information to create DB key and userid as well as to populate the name information in the database.
+        ##
         print "\n\n\tWhat is the first name of the person you want to $action?  ";
         chomp($fname = <STDIN>);
         chomp($first_init = substr($fname,0,1));
@@ -103,7 +74,28 @@ sub USER_INFO {
         chomp($mid_init = substr($mname,0,1));
         print "\n\n\tWhat is $fname\'s last name?  ";
         chomp($lname = <STDIN>);
+
+	##
+	## create/determine search key based on the 1st letter of the first name, first letter of the middle name and the last name
+	##
+        $db_key = $first_init . $mid_init . $lname;
+        $db_key =~ tr/A-Z/a-z/;
+
         #
+        # concatenates the first name, middle initial, and last name
+        # of the user into a single string.
+        #
+        chomp(@name = ($fname,$mid_init,$lname));
+
+	#
+        # concatenates the first initial, middle initial, and last name
+        # of the user into a single string and then converts the new
+        # string to all lower-case characters
+        #
+        $loginid = $first_init . $mid_init . $lname;
+        $loginid =~ tr/A-Z/a-z/;
+
+	#
         # now setting the privilege level for the user
         #
         print "\n\n\tWhat privilege level to you want $fname to have:";
@@ -119,19 +111,8 @@ sub USER_INFO {
         } elsif ("$privilege" eq "admin") {
                 $privilege_level = "admin";
         }
-        #
-        # concatenates the first name, middle initial, and last name
-        # of the user into a single string.
-        #
-        chomp(@name = ($fname,$mid_init,$lname));
-        #
-        # concatenates the first initial, middle initial, and last name
-        # of the user into a single string and then converts the new
-        # string to all lower-case characters
-        #
-        $loginid = $first_init . $mid_init . $lname;
-        $loginid =~ tr/A-Z/a-z/;
-        #
+
+	#
         # prompts for a "password" to be input, and then runs that string
         # through the sha256_hex interface in order to "encrypt" it
         #
@@ -155,17 +136,17 @@ sub ADD {
                 # If the record does not exist, it is added.
                 dbmopen (%name_secret,"user_db",0644) || die "can't open user_db database file";
                 if ($name_secret{"@name"}) {
-                        print"\n\n\"$key\" already exists in the database.  Would you like to replace the existing record (yes/no)?  ";
+                        print"\n\n\"$db_key\" already exists in the database.  Would you like to replace the existing record (yes/no)?  ";
                         chomp(my $answer = <STDIN>);
                         if ("$answer" =~ /[yY]/) {
-                                delete($name_secret{"$key"});
-                                $name_secret{"$key"} = "$user_info";
-                                print "\n\n\t\tThe record for \"$key\" has been replaced.\n"
+                                delete($name_secret{"$db_key"});
+                                $name_secret{"$db_key"} = "$user_info";
+                                print "\n\n\t\tThe record for \"$db_key\" has been replaced.\n"
                         } else {
-                                print "\n\n\t\"$key\" won't be added to the database.\n\n";
+                                print "\n\n\t\"$db_key\" won't be added to the database.\n\n";
                         }
                 } else {
-                        $name_secret{"$key"} = "$user_info";
+                        $name_secret{"$db_key"} = "$user_info";
                 }
                 dbmclose (%name_secret);
 
@@ -209,14 +190,14 @@ sub VIEW {
                 print "\n\n\tDo you want to view the record in \(C\)olumnar or \(R\)ow format:  ";
                 chomp($choice = <STDIN>);
                 if ("$choice" =~ /^[cC]/) {
-                        KEY_INFO;
+			# KEY_INFO;
                         # tests to determine if the record to be listed exists.  If not, prints an error message.
                         # If so, displays the pertinent record.
                         dbmopen (%name_secret,"user_db",0644) || die "can't open user_db database file";
-                        if (! $name_secret{"$key"}) {
-                                print"\n\n\"$key\" does not exist in the database.\n\n";
+                        if (! $name_secret{"$db_key"}) {
+                                print"\n\n\"$db_key\" does not exist in the database.\n\n";
                         } else {
-                                ($loginid,$fname,$mname,$lname,$privilege_level,$password)=split(":",$name_secret{"$key"});
+                                ($loginid,$fname,$mname,$lname,$privilege_level,$password)=split(":",$name_secret{"$db_key"});
 				chomp($mid_init = substr($mname,0,1));
                                 print "\n\n\tLoginID\t\t\t=\t$loginid\n";
                                 print "\tFirst Name\t\t=\t$fname\n";
@@ -227,14 +208,14 @@ sub VIEW {
                         }
                         dbmclose (%name_secret);
                 } elsif ("$choice" =~ /^[rR]/) {
-                        KEY_INFO;
+			# KEY_INFO;
                         # tests to determine if the record to be listed exists.  If not, prints an error message.
                         # If so, displays the pertinent record.
                         dbmopen (%name_secret,"user_db",0644) || die "can't open user_db database file";
-                        if (! $name_secret{"$key"}) {
-                                print"\n\n\"$key\" does not exist in the database.\n\n";
+                        if (! $name_secret{"$db_key"}) {
+                                print"\n\n\"$db_key\" does not exist in the database.\n\n";
                         } else {
-                                print("\n\t\t", $key, ' = ', $name_secret{"$key"}, "\n");
+                                print("\n\t\t", $db_key, ' = ', $name_secret{"$db_key"}, "\n");
                         }
                         dbmclose (%name_secret);
                 } else {
@@ -254,9 +235,9 @@ sub LIST {
         chomp($choice = <STDIN>);
         while ("$response" =~ /[yY]/) {
                 dbmopen (%name_secret,"user_db",0644) || die "can't open user_db database file";
-                foreach $key (sort(keys(%name_secret))) {
-                        print("\n\t", $key, ' = ', $name_secret{"$key"}, "\n");
-                        # printf("\$%s{%s} = '%s'", $data_file, $key, $name_secret{$key}, "\n");
+                foreach $db_key (sort(keys(%name_secret))) {
+                        print("\n\t", $db_key, ' = ', $name_secret{"$db_key"}, "\n");
+                        # printf("\$%s{%s} = '%s'", $data_file, $db_key, $name_secret{$db_key}, "\n");
                 }
                 dbmclose (%name_secret);
 
@@ -274,10 +255,10 @@ sub DELETE {
                 # tests to determine if the record to be deleted exists.  If not, prints an error message.
                 # If so, deletes the pertinent record.
                 dbmopen (%name_secret,"user_db",0644) || die "can't open user_db database file";
-                if (! $name_secret{"$key"}) {
+                if (! $name_secret{"$db_key"}) {
                         print"\n\n\"$loginid\" is not defined in the database.\n\n";
                 } else {
-                        delete($name_secret{"$key"});
+                        delete($name_secret{"$db_key"});
                         print"\n\t\t\"$loginid\" has been deleted from the database.\n\n";
                 }
                 dbmclose (%name_secret);
